@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands
 
@@ -14,5 +15,4 @@ async def on_ready():
 async def 안녕(ctx):
     await ctx.send(f'안녕하세요, {ctx.author.name}님!')
 
-# 맨 처음에 디스코드 개발자 센터에서 복사한 봇 토큰을 따옴표 안에 넣으세요
 bot.run(os.environ['BOT_TOKEN'])
