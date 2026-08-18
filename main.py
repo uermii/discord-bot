@@ -33,10 +33,10 @@ async def on_member_join(member):
             description=f"{member.mention}님, **{member.guild.name}** 서버에 오신 것을 환영합니다!",
             color=discord.Color.green()
         )
-        embed.set_thumbnail(url=member.display_avatar.url) # 유저 프로필 사진
+        embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="기본 역할 부여", value=f"**{DEFAULT_ROLE_NAME}** 역할이 자동으로 부여되었습니다.", inline=False)
-        embed.set_footer(text=f"현재 서버 인원: {member.guild.members_count}명")
+        embed.set_footer(text=f"현재 서버 인원: {member.guild.member_count}명") # 오타 수정 완료
         
         await channel.send(embed=embed)
 
-bot.run(os.environ['BOT_TOKEN'])
+bot.run(os.environ['BOT_TOKEN'])bot.run(os.environ['BOT_TOKEN'])
