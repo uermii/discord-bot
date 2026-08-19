@@ -65,17 +65,26 @@ class CloseTicketView(View):
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-# 티켓 채널 생성 공통 함수
+# 티켓 채널 생성 공통 함수 (응답 지연 방지 및 에러 메시지 출력 개선)
 async def create_ticket_channel(interaction: discord.Interaction, category_id: int, prefix: str):
+    # 디스코드 3초 타임아웃 방지
+    await interaction.response.defer(ephemeral=True)
+
     guild = interaction.guild
     user = interaction.user
     category = guild.get_channel(category_id)
+
+    if not category or not isinstance(category, discord.CategoryChannel):
+        return await interaction.followup.send(
+            "❌ 카테고리를 찾을 수 없습니다! 설정한 ID가 '카테고리 ID'가 맞는지 확인해 주세요.",
+            ephemeral=True
+        )
 
     channel_name = f"{prefix}-{user.name.lower()}"
     existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
     
     if existing_channel:
-        return await interaction.response.send_message(f"❌ 이미 생성된 채널이 있습니다: {existing_channel.mention}", ephemeral=True)
+        return await interaction.followup.send(f"❌ 이미 생성된 채널이 있습니다: {existing_channel.mention}", ephemeral=True)
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -83,19 +92,24 @@ async def create_ticket_channel(interaction: discord.Interaction, category_id: i
         guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
     }
 
-    ticket_channel = await guild.create_text_channel(
-        name=channel_name,
-        category=category,
-        overwrites=overwrites
-    )
+    try:
+        ticket_channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites
+        )
 
-    embed = discord.Embed(
-        title=f"🎫 {user.name}님의 접수가 완료되었습니다",
-        description="상세 내용을 남겨주시면 관리진이 확인 후 답변해 드립니다.\n완료 후 아래 **🔒 티켓 닫기** 버튼을 눌러주세요.",
-        color=discord.Color.green()
-    )
-    await ticket_channel.send(embed=embed, view=CloseTicketView())
-    await interaction.response.send_message(f"✅ 채널이 생성되었습니다: {ticket_channel.mention}", ephemeral=True)
+        embed = discord.Embed(
+            title=f"🎫 {user.name}님의 접수가 완료되었습니다",
+            description="상세 내용을 남겨주시면 관리진이 확인 후 답변해 드립니다.\n완료 후 아래 **🔒 티켓 닫기** 버튼을 눌러주세요.",
+            color=discord.Color.green()
+        )
+        await ticket_channel.send(embed=embed, view=CloseTicketView())
+        await interaction.followup.send(f"✅ 채널이 생성되었습니다: {ticket_channel.mention}", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ 봇에 **채널 관리(Manage Channels)** 권한이 없습니다.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ 오류 발생: {e}", ephemeral=True)
 
 # 1번 티켓 전용 버튼 (신고 및 제보)
 class TicketView1(View):
@@ -316,3 +330,5 @@ async def 경고확인(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 bot.run(os.environ['BOT_TOKEN'])
+
+ 
