@@ -17,9 +17,9 @@ WARN_LOG_CHANNEL_ID = 1535332752235302982    # 🔴 경고 로그 채널 ID
 CAUTION_LOG_CHANNEL_ID = 153533221682774016 # 🟡 주의 로그 채널 ID
 DEDUCT_LOG_CHANNEL_ID = 1535333356806348920  # 🟢 차감 로그 채널 ID
 
-# 🎫 티켓 생성용 카테고리 ID (수정 완료)
+# 🎫 티켓 생성용 카테고리 ID
 TICKET_CATEGORY_ID_1 = 1535332463440826478  # 1번 티켓: 신고 채널 카테고리 ID
-TICKET_CATEGORY_ID_2 = 1535335761396629617  # 2번 티켓: 관리자 지원 카테고리 ID
+TICKET_CATEGORY_ID_2 = 1535350122114842727  # 2번 티켓: 관리자 지원 카테고리 ID (수정 완료)
 
 DEFAULT_ROLE_NAME = "[ 🤍 ] : 미확인"        # 신규 유저 기본 역할 이름
 
@@ -329,4 +329,3 @@ async def 경고확인(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 bot.run(os.environ['BOT_TOKEN'])
- 
