@@ -94,7 +94,7 @@ async def add_chat_xp(member: discord.Member, amount: int, channel: discord.Text
             embed = discord.Embed(
                 title="💬 CHAT LEVEL UP!",
                 description=f"{member.mention}님의 채팅 레벨이 **Lv. {c_lvl + 1}**(으)로 올랐습니다!",
-                color=discord.Color.blue()
+                color=discord.Color.pink()
             )
             await channel.send(embed=embed)
     else:
@@ -121,14 +121,16 @@ async def add_voice_xp(member: discord.Member, amount: int):
         levels[u_str]["voice_level"] += 1
     save_data(LEVEL_FILE, levels)
 
-# --- [ 이미지 랭크 카드 생성 함수 ] ---
+# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 반영) ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
-    card = Image.new("RGBA", (width, height), (230, 243, 255, 255))
+    # 전체 배경: 연분홍 톤
+    card = Image.new("RGBA", (width, height), (255, 235, 240, 255))
     draw = ImageDraw.Draw(card)
 
-    draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(245, 250, 255, 255), outline=(180, 220, 255), width=3)
+    # 내부 카드 테두리 및 배경 (매우 부드러운 핑크)
+    draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(255, 248, 250, 255), outline=(255, 190, 205), width=3)
 
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
@@ -144,7 +146,8 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
     avatar_x, avatar_y = 50, 75
-    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(160, 210, 255))
+    # 아바타 외곽선 (딸기우유 핑크)
+    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 180, 195))
     draw.ellipse([avatar_x - 2, avatar_y - 2, avatar_x + avatar_size + 2, avatar_y + avatar_size + 2], fill=(255, 255, 255))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
@@ -156,8 +159,9 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
         font_name = font_lvl = font_xp = ImageFont.load_default()
 
     name_text = f"@{member.name}"
-    draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(190, 225, 255), outline=(140, 200, 255), width=2)
-    draw.text((610, 55), name_text, fill=(40, 90, 150), font=font_name, anchor="mm")
+    # 유저 네임 태그 상자 (연분홍)
+    draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
+    draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
 
     c_lvl = user_data.get("chat_level", 1)
     c_xp = user_data.get("chat_xp", 0)
@@ -168,18 +172,19 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     v_req = get_req_xp(v_lvl)
 
     def draw_progress_bar(y, icon_text, level, current_xp, req_xp):
-        draw.text((310, y + 15), f"{icon_text} LV{level}", fill=(70, 160, 240), font=font_lvl, anchor="lm")
+        draw.text((310, y + 15), f"{icon_text} LV{level}", fill=(230, 100, 130), font=font_lvl, anchor="lm")
         
         bar_x1, bar_y1, bar_x2, bar_y2 = 430, y, 740, y + 35
-        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(160, 210, 255), width=2)
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(255, 180, 200), width=2)
 
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
         if fill_width > 10:
-            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(80, 185, 255))
+            # 프로그레스바 채우기 (진한 핑크)
+            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(255, 130, 160))
 
         xp_text = f"{current_xp}/{req_xp}"
-        draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(80, 80, 80), font=font_xp, anchor="mm")
+        draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(100, 80, 85), font=font_xp, anchor="mm")
 
     draw_progress_bar(115, "💬", c_lvl, c_xp, c_req)
     draw_progress_bar(205, "🎙️", v_lvl, v_xp, v_req)
@@ -277,7 +282,6 @@ async def on_member_join(member):
         embed.set_footer(text=f"현재 서버 인원: {member.guild.member_count}명")
         await channel.send(embed=embed)
 
-# 💬 채팅 감지 및 경험치 지급 (1분 도배 제한)
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild:
@@ -305,7 +309,6 @@ async def on_message(message):
         xp_gained = random.randint(15, 25)
         await add_chat_xp(message.author, xp_gained, message.channel)
 
-# 🎙️ 음성 채널 입장/퇴장 감지 및 XP 지급 (1분당 10 XP)
 @bot.event
 async def on_voice_state_update(member, before, after):
     if member.bot:
@@ -436,7 +439,6 @@ async def 경고확인(ctx, member: discord.Member = None):
     embed.add_field(name="🔴 경고", value=f"**{user_data['warn']} / 5** 회", inline=True)
     await ctx.send(embed=embed)
 
-# 🏅 이미지 프로필 랭크 카드 출력 명령어
 @bot.command(aliases=['역할확인', '랭크', '레벨'])
 async def 랭크확인(ctx, member: discord.Member = None):
     member = member or ctx.author
