@@ -121,7 +121,7 @@ async def add_voice_xp(member: discord.Member, amount: int):
         levels[u_str]["voice_level"] += 1
     save_data(LEVEL_FILE, levels)
 
-# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 반영) ] ---
+# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 & 깨짐 방지 반영) ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
@@ -152,11 +152,12 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
     try:
-        font_name = ImageFont.truetype("arial.ttf", 26)
-        font_lvl = ImageFont.truetype("arial.ttf", 28)
-        font_xp = ImageFont.truetype("arial.ttf", 20)
+        font_name = ImageFont.truetype("arial.ttf", 24)
+        font_label = ImageFont.truetype("arial.ttf", 20)
+        font_lvl = ImageFont.truetype("arial.ttf", 22)
+        font_xp = ImageFont.truetype("arial.ttf", 18)
     except:
-        font_name = font_lvl = font_xp = ImageFont.load_default()
+        font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
 
     name_text = f"@{member.name}"
     # 유저 네임 태그 상자 (연분홍)
@@ -171,10 +172,12 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     v_xp = user_data.get("voice_xp", 0)
     v_req = get_req_xp(v_lvl)
 
-    def draw_progress_bar(y, icon_text, level, current_xp, req_xp):
-        draw.text((310, y + 15), f"{icon_text} LV{level}", fill=(230, 100, 130), font=font_lvl, anchor="lm")
+    def draw_progress_bar(y, label_text, level, current_xp, req_xp):
+        # 텍스트 깨짐 방지를 위해 영문 라벨 사용
+        draw.text((290, y + 17), label_text, fill=(220, 90, 120), font=font_label, anchor="lm")
+        draw.text((370, y + 17), f"LV.{level}", fill=(230, 110, 140), font=font_lvl, anchor="lm")
         
-        bar_x1, bar_y1, bar_x2, bar_y2 = 430, y, 740, y + 35
+        bar_x1, bar_y1, bar_x2, bar_y2 = 450, y, 740, y + 35
         draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(255, 180, 200), width=2)
 
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
@@ -186,8 +189,8 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
         xp_text = f"{current_xp}/{req_xp}"
         draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(100, 80, 85), font=font_xp, anchor="mm")
 
-    draw_progress_bar(115, "💬", c_lvl, c_xp, c_req)
-    draw_progress_bar(205, "🎙️", v_lvl, v_xp, v_req)
+    draw_progress_bar(115, "CHAT", c_lvl, c_xp, c_req)
+    draw_progress_bar(205, "VOICE", v_lvl, v_xp, v_req)
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
