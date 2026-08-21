@@ -70,7 +70,7 @@ def get_req_xp(level):
 user_cooldowns = {}
 voice_times = {}
 
-async def add_chat_xp(member: discord.Member, amount: int, channel: discord.TextChannel = None):
+async def add_chat_xp(member: discord.Member, amount: int):
     if member.bot:
         return
     levels = load_data(LEVEL_FILE)
@@ -87,18 +87,11 @@ async def add_chat_xp(member: discord.Member, amount: int, channel: discord.Text
     c_lvl = levels[u_str]["chat_level"]
     req = get_req_xp(c_lvl)
 
+    # 레벨업 메시지 출력하지 않고 레벨 수치만 올려 저장
     if c_xp >= req:
         levels[u_str]["chat_level"] += 1
-        save_data(LEVEL_FILE, levels)
-        if channel:
-            embed = discord.Embed(
-                title="💬 CHAT LEVEL UP!",
-                description=f"{member.mention}님의 채팅 레벨이 **Lv. {c_lvl + 1}**(으)로 올랐습니다!",
-                color=discord.Color.pink()
-            )
-            await channel.send(embed=embed)
-    else:
-        save_data(LEVEL_FILE, levels)
+    
+    save_data(LEVEL_FILE, levels)
 
 async def add_voice_xp(member: discord.Member, amount: int):
     if member.bot:
@@ -121,48 +114,52 @@ async def add_voice_xp(member: discord.Member, amount: int):
         levels[u_str]["voice_level"] += 1
     save_data(LEVEL_FILE, levels)
 
-# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 & 깨짐 방지 반영) ] ---
+# --- [ 엔젤코어 & 나루토마키 테마 랭크 카드 생성 ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
-    width, height = 800, 350
-    # 전체 배경: 연분홍 톤
-    card = Image.new("RGBA", (width, height), (255, 235, 240, 255))
+    width, height = 850, 380
+    card = Image.new("RGBA", (width, height), (255, 238, 245, 255))
     draw = ImageDraw.Draw(card)
 
-    # 내부 카드 테두리 및 배경 (매우 부드러운 핑크)
-    draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(255, 248, 250, 255), outline=(255, 190, 205), width=3)
+    # 메인 라운드 바디 카드
+    card_bg = [15, 15, width - 15, height - 15]
+    draw.rounded_rectangle(card_bg, radius=35, fill=(255, 255, 255, 250), outline=(255, 182, 203), width=4)
 
+    try:
+        font_name = ImageFont.truetype("arial.ttf", 28)
+        font_label = ImageFont.truetype("arial.ttf", 22)
+        font_lvl = ImageFont.truetype("arial.ttf", 22)
+        font_xp = ImageFont.truetype("arial.ttf", 19)
+    except:
+        font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
+
+    # 프로필 아바타
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
             avatar_bytes = await resp.read()
 
     avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-    avatar_size = 200
+    avatar_size = 190
     avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
 
     mask = Image.new("L", (avatar_size, avatar_size), 0)
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
-    avatar_x, avatar_y = 50, 75
-    # 아바타 외곽선 (딸기우유 핑크)
-    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 180, 195))
-    draw.ellipse([avatar_x - 2, avatar_y - 2, avatar_x + avatar_size + 2, avatar_y + avatar_size + 2], fill=(255, 255, 255))
+    avatar_x, avatar_y = 65, 110
+    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 192, 203))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
-    try:
-        font_name = ImageFont.truetype("arial.ttf", 24)
-        font_label = ImageFont.truetype("arial.ttf", 20)
-        font_lvl = ImageFont.truetype("arial.ttf", 22)
-        font_xp = ImageFont.truetype("arial.ttf", 18)
-    except:
-        font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
+    # 🎀 프로필 머리 위 엔젤 리본 & 뱅글 포인트 장식
+    top_x, top_y = avatar_x + (avatar_size // 2), avatar_y - 8
+    draw.ellipse([top_x - 18, top_y - 18, top_x + 18, top_y + 18], fill=(255, 228, 236), outline=(255, 160, 190), width=2)
+    draw.text((top_x, top_y), "🎀", fill=(255, 105, 180), font=font_label, anchor="mm")
 
+    # 유저 네임 태그
     name_text = f"@{member.name}"
-    # 유저 네임 태그 상자 (연분홍)
-    draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
-    draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
+    draw.rounded_rectangle([440, 38, 790, 92], radius=25, fill=(255, 230, 240), outline=(255, 175, 200), width=2)
+    draw.text((615, 65), f"🍥 {name_text}", fill=(215, 75, 120), font=font_name, anchor="mm")
 
     c_lvl = user_data.get("chat_level", 1)
     c_xp = user_data.get("chat_xp", 0)
@@ -172,25 +169,25 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     v_xp = user_data.get("voice_xp", 0)
     v_req = get_req_xp(v_lvl)
 
-    def draw_progress_bar(y, label_text, level, current_xp, req_xp):
-        # 텍스트 깨짐 방지를 위해 영문 라벨 사용
-        draw.text((290, y + 17), label_text, fill=(220, 90, 120), font=font_label, anchor="lm")
-        draw.text((370, y + 17), f"LV.{level}", fill=(230, 110, 140), font=font_lvl, anchor="lm")
-        
-        bar_x1, bar_y1, bar_x2, bar_y2 = 450, y, 740, y + 35
-        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(255, 180, 200), width=2)
+    # 게이지 바 생성 함수
+    def draw_bar(y, label_icon, label_text, level, current_xp, req_xp, fill_color):
+        draw.text((290, y + 21), f"{label_icon} {label_text}", fill=(225, 80, 130), font=font_label, anchor="lm")
+        draw.rounded_rectangle([385, y + 2, 460, y + 40], radius=15, fill=(255, 240, 245), outline=(255, 180, 205), width=2)
+        draw.text((422, y + 21), f"Lv.{level}", fill=(200, 60, 110), font=font_lvl, anchor="mm")
+
+        bar_x1, bar_y1, bar_x2, bar_y2 = 475, y, 790, y + 42
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=20, fill=(255, 255, 255), outline=(255, 192, 203), width=2)
 
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
-        if fill_width > 10:
-            # 프로그레스바 채우기 (진한 핑크)
-            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(255, 130, 160))
+        if fill_width > 15:
+            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=20, fill=fill_color)
 
-        xp_text = f"{current_xp}/{req_xp}"
-        draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(100, 80, 85), font=font_xp, anchor="mm")
+        xp_text = f"{current_xp} / {req_xp} XP"
+        draw.text(((bar_x1 + bar_x2) // 2, y + 21), xp_text, fill=(120, 80, 100), font=font_xp, anchor="mm")
 
-    draw_progress_bar(115, "CHAT", c_lvl, c_xp, c_req)
-    draw_progress_bar(205, "VOICE", v_lvl, v_xp, v_req)
+    draw_bar(135, "🍥", "CHAT", c_lvl, c_xp, c_req, (255, 182, 193))
+    draw_bar(235, "👼", "VOICE", v_lvl, v_xp, v_req, (255, 160, 180))
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
@@ -258,7 +255,7 @@ class TicketView2(View):
     async def create_ticket(self, interaction: discord.Interaction, button: Button):
         await create_ticket_channel(interaction, TICKET_CATEGORY_ID_2, "신청")
 
-# --- [ 이벤트 감지 (채팅 XP / 음성 XP / 환영인사) ] ---
+# --- [ 이벤트 감지 ] ---
 
 @bot.event
 async def on_ready():
@@ -278,7 +275,7 @@ async def on_member_join(member):
         embed = discord.Embed(
             title="🎉 신규 멤버 입장!",
             description=f"{member.mention}님, **{member.guild.name}** 서버에 오신 것을 환영합니다!",
-            color=discord.Color.green()
+            color=discord.Color.pink()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="기본 역할 부여", value=f"**{DEFAULT_ROLE_NAME}** 역할이 자동으로 부여되었습니다.", inline=False)
@@ -310,7 +307,7 @@ async def on_message(message):
         save_data(LEVEL_FILE, levels)
 
         xp_gained = random.randint(15, 25)
-        await add_chat_xp(message.author, xp_gained, message.channel)
+        await add_chat_xp(message.author, xp_gained)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -437,7 +434,7 @@ async def 경고확인(ctx, member: discord.Member = None):
     data = load_data(WARN_FILE)
     user_data = data.get(str(member.id), {"caution": 0, "warn": 0})
     
-    embed = discord.Embed(title=f"📋 {member.name}님의 처벌 내역", color=discord.Color.blue())
+    embed = discord.Embed(title=f"📋 {member.name}님의 처벌 내역", color=discord.Color.pink())
     embed.add_field(name="🟡 주의", value=f"**{user_data['caution']} / 2** 회", inline=True)
     embed.add_field(name="🔴 경고", value=f"**{user_data['warn']} / 5** 회", inline=True)
     await ctx.send(embed=embed)
