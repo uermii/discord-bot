@@ -125,72 +125,92 @@ async def add_voice_xp(member: discord.Member, amount: int):
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
-    # 전체 배경: 연분홍 톤
-    card = Image.new("RGBA", (width, height), (255, 235, 240, 255))
+    
+    # 1. 깔끔하고 은은한 연분홍 단색/그라데이션 바탕
+    card = Image.new("RGBA", (width, height), (255, 240, 243, 255))
     draw = ImageDraw.Draw(card)
 
-    # 내부 카드 테두리 및 배경 (매우 부드러운 핑크)
-    draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(255, 248, 250, 255), outline=(255, 190, 205), width=3)
+    # 2. 메인 카드 테두리 (깔끔한 연핑크 라인)
+    margin = 15
+    draw.rounded_rectangle(
+        [margin, margin, width - margin, height - margin], 
+        radius=20, 
+        fill=(255, 250, 252, 255), 
+        outline=(255, 200, 215), 
+        width=2
+    )
 
+    # 3. 테두리 날개 장식 (상단 양쪽 모서리에 깔끔한 라인 날개 포인트)
+    def draw_wing_decor(x, y, is_left=True):
+        direction = 1 if is_left else -1
+        wing_color = (255, 180, 200, 220)
+        # 깃털 느낌의 심플한 곡선들
+        draw.arc([x, y, x + (60 * direction), y + 30], start=180, end=360, fill=wing_color, width=3)
+        draw.arc([x, y + 10, x + (45 * direction), y + 35], start=180, end=360, fill=wing_color, width=2)
+        draw.arc([x, y + 20, x + (30 * direction), y + 40], start=180, end=360, fill=wing_color, width=2)
+
+    # 왼쪽/오른쪽 상단 모서리에 날개 배치
+    draw_wing_decor(25, 20, is_left=True)
+    draw_wing_decor(width - 25, 20, is_left=False)
+
+    # 4. 아바타 프로필 (군더더기 없는 원형 마스크)
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
             avatar_bytes = await resp.read()
 
     avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-    avatar_size = 200
+    avatar_size = 180
     avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
 
     mask = Image.new("L", (avatar_size, avatar_size), 0)
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
-    avatar_x, avatar_y = 50, 75
-    # 아바타 외곽선 (딸기우유 핑크)
-    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 180, 195))
-    draw.ellipse([avatar_x - 2, avatar_y - 2, avatar_x + avatar_size + 2, avatar_y + avatar_size + 2], fill=(255, 255, 255))
+    avatar_x, avatar_y = 50, 85
+    # 아바타 테두리
+    draw.ellipse([avatar_x - 4, avatar_y - 4, avatar_x + avatar_size + 4, avatar_y + avatar_size + 4], fill=(255, 210, 225))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
+    # 5. 폰트 설정
     try:
-        font_name = ImageFont.truetype("arial.ttf", 24)
-        font_label = ImageFont.truetype("arial.ttf", 20)
-        font_lvl = ImageFont.truetype("arial.ttf", 22)
-        font_xp = ImageFont.truetype("arial.ttf", 18)
+        font_name = ImageFont.truetype("arial.ttf", 20)
+        font_label = ImageFont.truetype("arial.ttf", 18)
+        font_lvl = ImageFont.truetype("arial.ttf", 18)
+        font_xp = ImageFont.truetype("arial.ttf", 16)
     except:
         font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
 
+    # 유저네임 태그 박스 (심플 핑크)
     name_text = f"@{member.name}"
-    # 유저 네임 태그 상자 (연분홍)
-    draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
-    draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
+    draw.rounded_rectangle([450, 45, 740, 80], radius=15, fill=(255, 225, 235), outline=(255, 195, 210), width=1)
+    draw.text((595, 62), name_text, fill=(200, 100, 130), font=font_name, anchor="mm")
 
-    c_lvl = user_data.get("chat_level", 1)
-    c_xp = user_data.get("chat_xp", 0)
+    # 6. 게이지 바 (깔끔한 평면 핑크 디자인)
+    c_lvl, c_xp = user_data.get("chat_level", 1), user_data.get("chat_xp", 0)
     c_req = get_req_xp(c_lvl)
-
-    v_lvl = user_data.get("voice_level", 1)
-    v_xp = user_data.get("voice_xp", 0)
+    v_lvl, v_xp = user_data.get("voice_level", 1), user_data.get("voice_xp", 0)
     v_req = get_req_xp(v_lvl)
 
-    def draw_progress_bar(y, label_text, level, current_xp, req_xp):
-        # 텍스트 깨짐 방지를 위해 영문 라벨 사용
-        draw.text((290, y + 17), label_text, fill=(220, 90, 120), font=font_label, anchor="lm")
-        draw.text((370, y + 17), f"LV.{level}", fill=(230, 110, 140), font=font_lvl, anchor="lm")
+    def draw_flat_bar(y, label_text, level, current_xp, req_xp):
+        draw.text((270, y + 15), label_text, fill=(210, 110, 135), font=font_label, anchor="lm")
+        draw.text((350, y + 15), f"LV.{level}", fill=(220, 125, 150), font=font_lvl, anchor="lm")
         
-        bar_x1, bar_y1, bar_x2, bar_y2 = 450, y, 740, y + 35
-        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(255, 180, 200), width=2)
+        bar_x1, bar_y1, bar_x2, bar_y2 = 420, y, 740, y + 30
+        # 게이지 바탕
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=15, fill=(255, 255, 255), outline=(255, 200, 215), width=1)
 
+        # 게이지 채우기
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
         if fill_width > 10:
-            # 프로그레스바 채우기 (진한 핑크)
-            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(255, 130, 160))
+            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=15, fill=(255, 160, 185))
 
-        xp_text = f"{current_xp}/{req_xp}"
-        draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(100, 80, 85), font=font_xp, anchor="mm")
+        xp_text = f"{current_xp} / {req_xp}"
+        draw.text(((bar_x1 + bar_x2) // 2, y + 15), xp_text, fill=(120, 90, 100), font=font_xp, anchor="mm")
 
-    draw_progress_bar(115, "CHAT", c_lvl, c_xp, c_req)
-    draw_progress_bar(205, "VOICE", v_lvl, v_xp, v_req)
+    draw_flat_bar(130, "CHAT", c_lvl, c_xp, c_req)
+    draw_flat_bar(210, "VOICE", v_lvl, v_xp, v_req)
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
