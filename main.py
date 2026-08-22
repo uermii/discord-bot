@@ -125,35 +125,24 @@ async def add_voice_xp(member: discord.Member, amount: int):
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
-    
-    # 1. 깔끔하고 은은한 연분홍 단색/그라데이션 바탕
     card = Image.new("RGBA", (width, height), (255, 240, 243, 255))
     draw = ImageDraw.Draw(card)
 
-    # 2. 메인 카드 테두리 (깔끔한 연핑크 라인)
+    # 테두리
     margin = 15
-    draw.rounded_rectangle(
-        [margin, margin, width - margin, height - margin], 
-        radius=20, 
-        fill=(255, 250, 252, 255), 
-        outline=(255, 200, 215), 
-        width=2
-    )
+    draw.rounded_rectangle([margin, margin, width - margin, height - margin], radius=20, fill=(255, 250, 252, 255), outline=(255, 200, 215), width=2)
 
-    # 3. 테두리 날개 장식 (상단 양쪽 모서리에 깔끔한 라인 날개 포인트)
+    # 심플한 날개 드로잉
     def draw_wing_decor(x, y, is_left=True):
         direction = 1 if is_left else -1
         wing_color = (255, 180, 200, 220)
-        # 깃털 느낌의 심플한 곡선들
         draw.arc([x, y, x + (60 * direction), y + 30], start=180, end=360, fill=wing_color, width=3)
         draw.arc([x, y + 10, x + (45 * direction), y + 35], start=180, end=360, fill=wing_color, width=2)
-        draw.arc([x, y + 20, x + (30 * direction), y + 40], start=180, end=360, fill=wing_color, width=2)
 
-    # 왼쪽/오른쪽 상단 모서리에 날개 배치
     draw_wing_decor(25, 20, is_left=True)
     draw_wing_decor(width - 25, 20, is_left=False)
 
-    # 4. 아바타 프로필 (군더더기 없는 원형 마스크)
+    # 아바타 처리 (안전한 리사이즈 호환)
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
@@ -161,53 +150,48 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
 
     avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
     avatar_size = 180
-    avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+    
+    try:
+        avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+    except AttributeError:
+        avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.ANTIALIAS)
 
     mask = Image.new("L", (avatar_size, avatar_size), 0)
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
     avatar_x, avatar_y = 50, 85
-    # 아바타 테두리
     draw.ellipse([avatar_x - 4, avatar_y - 4, avatar_x + avatar_size + 4, avatar_y + avatar_size + 4], fill=(255, 210, 225))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
-    # 5. 폰트 설정
-    try:
-        font_name = ImageFont.truetype("arial.ttf", 20)
-        font_label = ImageFont.truetype("arial.ttf", 18)
-        font_lvl = ImageFont.truetype("arial.ttf", 18)
-        font_xp = ImageFont.truetype("arial.ttf", 16)
-    except:
-        font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
+    # 폰트 안전 처리
+    font = ImageFont.load_default()
 
-    # 유저네임 태그 박스 (심플 핑크)
+    # 유저네임
     name_text = f"@{member.name}"
     draw.rounded_rectangle([450, 45, 740, 80], radius=15, fill=(255, 225, 235), outline=(255, 195, 210), width=1)
-    draw.text((595, 62), name_text, fill=(200, 100, 130), font=font_name, anchor="mm")
+    draw.text((595, 62), name_text, fill=(200, 100, 130), font=font, anchor="mm")
 
-    # 6. 게이지 바 (깔끔한 평면 핑크 디자인)
+    # 레벨 계산
     c_lvl, c_xp = user_data.get("chat_level", 1), user_data.get("chat_xp", 0)
     c_req = get_req_xp(c_lvl)
     v_lvl, v_xp = user_data.get("voice_level", 1), user_data.get("voice_xp", 0)
     v_req = get_req_xp(v_lvl)
 
     def draw_flat_bar(y, label_text, level, current_xp, req_xp):
-        draw.text((270, y + 15), label_text, fill=(210, 110, 135), font=font_label, anchor="lm")
-        draw.text((350, y + 15), f"LV.{level}", fill=(220, 125, 150), font=font_lvl, anchor="lm")
+        draw.text((270, y + 15), label_text, fill=(210, 110, 135), font=font, anchor="lm")
+        draw.text((350, y + 15), f"LV.{level}", fill=(220, 125, 150), font=font, anchor="lm")
         
         bar_x1, bar_y1, bar_x2, bar_y2 = 420, y, 740, y + 30
-        # 게이지 바탕
         draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=15, fill=(255, 255, 255), outline=(255, 200, 215), width=1)
 
-        # 게이지 채우기
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
         if fill_width > 10:
             draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=15, fill=(255, 160, 185))
 
         xp_text = f"{current_xp} / {req_xp}"
-        draw.text(((bar_x1 + bar_x2) // 2, y + 15), xp_text, fill=(120, 90, 100), font=font_xp, anchor="mm")
+        draw.text(((bar_x1 + bar_x2) // 2, y + 15), xp_text, fill=(120, 90, 100), font=font, anchor="mm")
 
     draw_flat_bar(130, "CHAT", c_lvl, c_xp, c_req)
     draw_flat_bar(210, "VOICE", v_lvl, v_xp, v_req)
