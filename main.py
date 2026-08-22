@@ -10,6 +10,7 @@ from discord.ui import Button, View
 from PIL import Image, ImageDraw, ImageFont
 import aiohttp
 
+# --- [ ⚙️ 기본 설정 및 인텐트 ] ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True 
@@ -44,7 +45,10 @@ LEVEL_FILE = "levels.json"
 def load_data(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
     return {}
 
 def save_data(file_path, data):
@@ -55,12 +59,18 @@ async def update_warn_roles(guild, member, warn_count):
     for role_name in WARN_ROLES.values():
         role = discord.utils.get(guild.roles, name=role_name)
         if role and role in member.roles:
-            await member.remove_roles(role)
+            try:
+                await member.remove_roles(role)
+            except discord.Forbidden:
+                pass
 
     if warn_count in WARN_ROLES:
         target_role = discord.utils.get(guild.roles, name=WARN_ROLES[warn_count])
         if target_role:
-            await member.add_roles(target_role)
+            try:
+                await member.add_roles(target_role)
+            except discord.Forbidden:
+                pass
 
 # --- [ 레벨링 계산 로직 ] ---
 
@@ -121,18 +131,18 @@ async def add_voice_xp(member: discord.Member, amount: int):
         levels[u_str]["voice_level"] += 1
     save_data(LEVEL_FILE, levels)
 
-# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 & 깨짐 방지 반영) ] ---
+# --- [ 이미지 랭크 카드 생성 함수 (깔끔한 연분홍 + 날개 포인트) ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
     card = Image.new("RGBA", (width, height), (255, 240, 243, 255))
     draw = ImageDraw.Draw(card)
 
-    # 테두리
+    # 1. 메인 테두리
     margin = 15
     draw.rounded_rectangle([margin, margin, width - margin, height - margin], radius=20, fill=(255, 250, 252, 255), outline=(255, 200, 215), width=2)
 
-    # 심플한 날개 드로잉
+    # 2. 테두리 상단 날개 포인트
     def draw_wing_decor(x, y, is_left=True):
         direction = 1 if is_left else -1
         wing_color = (255, 180, 200, 220)
@@ -142,7 +152,7 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     draw_wing_decor(25, 20, is_left=True)
     draw_wing_decor(width - 25, 20, is_left=False)
 
-    # 아바타 처리 (안전한 리사이즈 호환)
+    # 3. 아바타 이미지 불러오기 (버전 호환 안전 처리)
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
@@ -164,15 +174,15 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     draw.ellipse([avatar_x - 4, avatar_y - 4, avatar_x + avatar_size + 4, avatar_y + avatar_size + 4], fill=(255, 210, 225))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
-    # 폰트 안전 처리
+    # 4. 폰트 기본 설정
     font = ImageFont.load_default()
 
-    # 유저네임
+    # 5. 유저네임 박스
     name_text = f"@{member.name}"
     draw.rounded_rectangle([450, 45, 740, 80], radius=15, fill=(255, 225, 235), outline=(255, 195, 210), width=1)
     draw.text((595, 62), name_text, fill=(200, 100, 130), font=font, anchor="mm")
 
-    # 레벨 계산
+    # 6. 게이지 바
     c_lvl, c_xp = user_data.get("chat_level", 1), user_data.get("chat_xp", 0)
     c_req = get_req_xp(c_lvl)
     v_lvl, v_xp = user_data.get("voice_level", 1), user_data.get("voice_xp", 0)
@@ -211,7 +221,10 @@ class CloseTicketView(View):
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message("5초 후 이 티켓 채널이 삭제됩니다.")
         await asyncio.sleep(5)
-        await interaction.channel.delete()
+        try:
+            await interaction.channel.delete()
+        except discord.Forbidden:
+            pass
 
 async def create_ticket_channel(interaction: discord.Interaction, category_id: int, prefix: str):
     await interaction.response.defer(ephemeral=True)
@@ -275,14 +288,17 @@ async def on_ready():
 async def on_member_join(member):
     role = discord.utils.get(member.guild.roles, name=DEFAULT_ROLE_NAME)
     if role:
-        await member.add_roles(role)
+        try:
+            await member.add_roles(role)
+        except discord.Forbidden:
+            pass
 
     channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
     if channel:
         embed = discord.Embed(
             title="🎉 신규 멤버 입장!",
             description=f"{member.mention}님, **{member.guild.name}** 서버에 오신 것을 환영합니다!",
-            color=discord.Color.green()
+            color=discord.Color.pink()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="기본 역할 부여", value=f"**{DEFAULT_ROLE_NAME}** 역할이 자동으로 부여되었습니다.", inline=False)
@@ -381,6 +397,15 @@ async def 주의(ctx, member: discord.Member, *, reason: str = "사유 미작성
     save_data(WARN_FILE, data)
     c_count, w_count = data[user_id]["caution"], data[user_id]["warn"]
 
+    log_channel = ctx.guild.get_channel(CAUTION_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(title="🟡 [주의 처리 로그]", color=discord.Color.gold())
+        embed.add_field(name="대상자", value=f"{member.mention} ({member.id})", inline=True)
+        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
+        embed.add_field(name="사유", value=reason, inline=False)
+        embed.add_field(name="현재 누적", value=f"주의 {c_count}/2회 | 경고 {w_count}회", inline=False)
+        await log_channel.send(embed=embed)
+
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
         await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
@@ -403,6 +428,15 @@ async def 경고(ctx, member: discord.Member, *, reason: str = "사유 미작성
     save_data(WARN_FILE, data)
     w_count = data[user_id]["warn"]
 
+    log_channel = ctx.guild.get_channel(WARN_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(title="🔴 [경고 처리 로그]", color=discord.Color.red())
+        embed.add_field(name="대상자", value=f"{member.mention} ({member.id})", inline=True)
+        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
+        embed.add_field(name="사유", value=reason, inline=False)
+        embed.add_field(name="현재 누적 경고", value=f"{w_count}회", inline=False)
+        await log_channel.send(embed=embed)
+
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
         await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
@@ -420,6 +454,15 @@ async def 주의차감(ctx, member: discord.Member, amount: int = 1):
 
     data[user_id]["caution"] = max(0, data[user_id]["caution"] - amount)
     save_data(WARN_FILE, data)
+
+    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(title="🟢 [주의 차감 로그]", color=discord.Color.green())
+        embed.add_field(name="대상자", value=f"{member.mention}", inline=True)
+        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
+        embed.add_field(name="차감 수량", value=f"{amount}회", inline=False)
+        await log_channel.send(embed=embed)
+
     await ctx.send(f"🟢 {member.mention}님의 주의를 {amount}회 차감했습니다.")
 
 @bot.command()
@@ -433,6 +476,15 @@ async def 경고차감(ctx, member: discord.Member, amount: int = 1):
     data[user_id]["warn"] = max(0, data[user_id]["warn"] - amount)
     save_data(WARN_FILE, data)
     await update_warn_roles(ctx.guild, member, data[user_id]["warn"])
+
+    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(title="🟢 [경고 차감 로그]", color=discord.Color.green())
+        embed.add_field(name="대상자", value=f"{member.mention}", inline=True)
+        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
+        embed.add_field(name="차감 수량", value=f"{amount}회", inline=False)
+        await log_channel.send(embed=embed)
+
     await ctx.send(f"🟢 {member.mention}님의 경고를 {amount}회 차감했습니다.")
 
 @bot.command()
@@ -462,4 +514,5 @@ async def 랭크확인(ctx, member: discord.Member = None):
         file = discord.File(fp=image_buffer, filename="rank_card.png")
         await ctx.send(file=file)
 
+# 봇 실행 (환경변수 'BOT_TOKEN' 불러오기)
 bot.run(os.environ['BOT_TOKEN'])
