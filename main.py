@@ -10,7 +10,6 @@ from discord.ui import Button, View
 from PIL import Image, ImageDraw, ImageFont
 import aiohttp
 
-# --- [ ⚙️ 기본 설정 및 인텐트 ] ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True 
@@ -45,10 +44,7 @@ LEVEL_FILE = "levels.json"
 def load_data(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
+            return json.load(f)
     return {}
 
 def save_data(file_path, data):
@@ -59,18 +55,12 @@ async def update_warn_roles(guild, member, warn_count):
     for role_name in WARN_ROLES.values():
         role = discord.utils.get(guild.roles, name=role_name)
         if role and role in member.roles:
-            try:
-                await member.remove_roles(role)
-            except discord.Forbidden:
-                pass
+            await member.remove_roles(role)
 
     if warn_count in WARN_ROLES:
         target_role = discord.utils.get(guild.roles, name=WARN_ROLES[warn_count])
         if target_role:
-            try:
-                await member.add_roles(target_role)
-            except discord.Forbidden:
-                pass
+            await member.add_roles(target_role)
 
 # --- [ 레벨링 계산 로직 ] ---
 
@@ -131,80 +121,76 @@ async def add_voice_xp(member: discord.Member, amount: int):
         levels[u_str]["voice_level"] += 1
     save_data(LEVEL_FILE, levels)
 
-# --- [ 이미지 랭크 카드 생성 함수 (깔끔한 연분홍 + 날개 포인트) ] ---
+# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 & 깨짐 방지 반영) ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
-    card = Image.new("RGBA", (width, height), (255, 240, 243, 255))
+    # 전체 배경: 연분홍 톤
+    card = Image.new("RGBA", (width, height), (255, 235, 240, 255))
     draw = ImageDraw.Draw(card)
 
-    # 1. 메인 테두리
-    margin = 15
-    draw.rounded_rectangle([margin, margin, width - margin, height - margin], radius=20, fill=(255, 250, 252, 255), outline=(255, 200, 215), width=2)
+    # 내부 카드 테두리 및 배경 (매우 부드러운 핑크)
+    draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(255, 248, 250, 255), outline=(255, 190, 205), width=3)
 
-    # 2. 테두리 상단 날개 포인트
-    def draw_wing_decor(x, y, is_left=True):
-        direction = 1 if is_left else -1
-        wing_color = (255, 180, 200, 220)
-        draw.arc([x, y, x + (60 * direction), y + 30], start=180, end=360, fill=wing_color, width=3)
-        draw.arc([x, y + 10, x + (45 * direction), y + 35], start=180, end=360, fill=wing_color, width=2)
-
-    draw_wing_decor(25, 20, is_left=True)
-    draw_wing_decor(width - 25, 20, is_left=False)
-
-    # 3. 아바타 이미지 불러오기 (버전 호환 안전 처리)
     avatar_url = member.display_avatar.with_size(256).url
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
             avatar_bytes = await resp.read()
 
     avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-    avatar_size = 180
-    
-    try:
-        avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
-    except AttributeError:
-        avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.ANTIALIAS)
+    avatar_size = 200
+    avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
 
     mask = Image.new("L", (avatar_size, avatar_size), 0)
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
-    avatar_x, avatar_y = 50, 85
-    draw.ellipse([avatar_x - 4, avatar_y - 4, avatar_x + avatar_size + 4, avatar_y + avatar_size + 4], fill=(255, 210, 225))
+    avatar_x, avatar_y = 50, 75
+    # 아바타 외곽선 (딸기우유 핑크)
+    draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 180, 195))
+    draw.ellipse([avatar_x - 2, avatar_y - 2, avatar_x + avatar_size + 2, avatar_y + avatar_size + 2], fill=(255, 255, 255))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
 
-    # 4. 폰트 기본 설정
-    font = ImageFont.load_default()
+    try:
+        font_name = ImageFont.truetype("arial.ttf", 24)
+        font_label = ImageFont.truetype("arial.ttf", 20)
+        font_lvl = ImageFont.truetype("arial.ttf", 22)
+        font_xp = ImageFont.truetype("arial.ttf", 18)
+    except:
+        font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
 
-    # 5. 유저네임 박스
     name_text = f"@{member.name}"
-    draw.rounded_rectangle([450, 45, 740, 80], radius=15, fill=(255, 225, 235), outline=(255, 195, 210), width=1)
-    draw.text((595, 62), name_text, fill=(200, 100, 130), font=font, anchor="mm")
+    # 유저 네임 태그 상자 (연분홍)
+    draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
+    draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
 
-    # 6. 게이지 바
-    c_lvl, c_xp = user_data.get("chat_level", 1), user_data.get("chat_xp", 0)
+    c_lvl = user_data.get("chat_level", 1)
+    c_xp = user_data.get("chat_xp", 0)
     c_req = get_req_xp(c_lvl)
-    v_lvl, v_xp = user_data.get("voice_level", 1), user_data.get("voice_xp", 0)
+
+    v_lvl = user_data.get("voice_level", 1)
+    v_xp = user_data.get("voice_xp", 0)
     v_req = get_req_xp(v_lvl)
 
-    def draw_flat_bar(y, label_text, level, current_xp, req_xp):
-        draw.text((270, y + 15), label_text, fill=(210, 110, 135), font=font, anchor="lm")
-        draw.text((350, y + 15), f"LV.{level}", fill=(220, 125, 150), font=font, anchor="lm")
+    def draw_progress_bar(y, label_text, level, current_xp, req_xp):
+        # 텍스트 깨짐 방지를 위해 영문 라벨 사용
+        draw.text((290, y + 17), label_text, fill=(220, 90, 120), font=font_label, anchor="lm")
+        draw.text((370, y + 17), f"LV.{level}", fill=(230, 110, 140), font=font_lvl, anchor="lm")
         
-        bar_x1, bar_y1, bar_x2, bar_y2 = 420, y, 740, y + 30
-        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=15, fill=(255, 255, 255), outline=(255, 200, 215), width=1)
+        bar_x1, bar_y1, bar_x2, bar_y2 = 450, y, 740, y + 35
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=18, fill=(255, 255, 255), outline=(255, 180, 200), width=2)
 
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
         if fill_width > 10:
-            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=15, fill=(255, 160, 185))
+            # 프로그레스바 채우기 (진한 핑크)
+            draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(255, 130, 160))
 
-        xp_text = f"{current_xp} / {req_xp}"
-        draw.text(((bar_x1 + bar_x2) // 2, y + 15), xp_text, fill=(120, 90, 100), font=font, anchor="mm")
+        xp_text = f"{current_xp}/{req_xp}"
+        draw.text(((bar_x1 + bar_x2) // 2, y + 17), xp_text, fill=(100, 80, 85), font=font_xp, anchor="mm")
 
-    draw_flat_bar(130, "CHAT", c_lvl, c_xp, c_req)
-    draw_flat_bar(210, "VOICE", v_lvl, v_xp, v_req)
+    draw_progress_bar(115, "CHAT", c_lvl, c_xp, c_req)
+    draw_progress_bar(205, "VOICE", v_lvl, v_xp, v_req)
 
     buffer = io.BytesIO()
     card.save(buffer, format="PNG")
@@ -221,10 +207,7 @@ class CloseTicketView(View):
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message("5초 후 이 티켓 채널이 삭제됩니다.")
         await asyncio.sleep(5)
-        try:
-            await interaction.channel.delete()
-        except discord.Forbidden:
-            pass
+        await interaction.channel.delete()
 
 async def create_ticket_channel(interaction: discord.Interaction, category_id: int, prefix: str):
     await interaction.response.defer(ephemeral=True)
@@ -288,17 +271,14 @@ async def on_ready():
 async def on_member_join(member):
     role = discord.utils.get(member.guild.roles, name=DEFAULT_ROLE_NAME)
     if role:
-        try:
-            await member.add_roles(role)
-        except discord.Forbidden:
-            pass
+        await member.add_roles(role)
 
     channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
     if channel:
         embed = discord.Embed(
             title="🎉 신규 멤버 입장!",
             description=f"{member.mention}님, **{member.guild.name}** 서버에 오신 것을 환영합니다!",
-            color=discord.Color.pink()
+            color=discord.Color.green()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="기본 역할 부여", value=f"**{DEFAULT_ROLE_NAME}** 역할이 자동으로 부여되었습니다.", inline=False)
@@ -397,15 +377,6 @@ async def 주의(ctx, member: discord.Member, *, reason: str = "사유 미작성
     save_data(WARN_FILE, data)
     c_count, w_count = data[user_id]["caution"], data[user_id]["warn"]
 
-    log_channel = ctx.guild.get_channel(CAUTION_LOG_CHANNEL_ID)
-    if log_channel:
-        embed = discord.Embed(title="🟡 [주의 처리 로그]", color=discord.Color.gold())
-        embed.add_field(name="대상자", value=f"{member.mention} ({member.id})", inline=True)
-        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
-        embed.add_field(name="사유", value=reason, inline=False)
-        embed.add_field(name="현재 누적", value=f"주의 {c_count}/2회 | 경고 {w_count}회", inline=False)
-        await log_channel.send(embed=embed)
-
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
         await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
@@ -428,15 +399,6 @@ async def 경고(ctx, member: discord.Member, *, reason: str = "사유 미작성
     save_data(WARN_FILE, data)
     w_count = data[user_id]["warn"]
 
-    log_channel = ctx.guild.get_channel(WARN_LOG_CHANNEL_ID)
-    if log_channel:
-        embed = discord.Embed(title="🔴 [경고 처리 로그]", color=discord.Color.red())
-        embed.add_field(name="대상자", value=f"{member.mention} ({member.id})", inline=True)
-        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
-        embed.add_field(name="사유", value=reason, inline=False)
-        embed.add_field(name="현재 누적 경고", value=f"{w_count}회", inline=False)
-        await log_channel.send(embed=embed)
-
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
         await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
@@ -454,15 +416,6 @@ async def 주의차감(ctx, member: discord.Member, amount: int = 1):
 
     data[user_id]["caution"] = max(0, data[user_id]["caution"] - amount)
     save_data(WARN_FILE, data)
-
-    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
-    if log_channel:
-        embed = discord.Embed(title="🟢 [주의 차감 로그]", color=discord.Color.green())
-        embed.add_field(name="대상자", value=f"{member.mention}", inline=True)
-        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
-        embed.add_field(name="차감 수량", value=f"{amount}회", inline=False)
-        await log_channel.send(embed=embed)
-
     await ctx.send(f"🟢 {member.mention}님의 주의를 {amount}회 차감했습니다.")
 
 @bot.command()
@@ -476,15 +429,6 @@ async def 경고차감(ctx, member: discord.Member, amount: int = 1):
     data[user_id]["warn"] = max(0, data[user_id]["warn"] - amount)
     save_data(WARN_FILE, data)
     await update_warn_roles(ctx.guild, member, data[user_id]["warn"])
-
-    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
-    if log_channel:
-        embed = discord.Embed(title="🟢 [경고 차감 로그]", color=discord.Color.green())
-        embed.add_field(name="대상자", value=f"{member.mention}", inline=True)
-        embed.add_field(name="담당자", value=f"{ctx.author.mention}", inline=True)
-        embed.add_field(name="차감 수량", value=f"{amount}회", inline=False)
-        await log_channel.send(embed=embed)
-
     await ctx.send(f"🟢 {member.mention}님의 경고를 {amount}회 차감했습니다.")
 
 @bot.command()
@@ -514,5 +458,4 @@ async def 랭크확인(ctx, member: discord.Member = None):
         file = discord.File(fp=image_buffer, filename="rank_card.png")
         await ctx.send(file=file)
 
-# 봇 실행 (환경변수 'BOT_TOKEN' 불러오기)
 bot.run(os.environ['BOT_TOKEN'])
