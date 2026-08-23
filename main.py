@@ -62,7 +62,7 @@ async def update_warn_roles(guild, member, warn_count):
         if target_role:
             await member.add_roles(target_role)
 
-# --- [ 레벨링 계산 로직 (수정됨) ] ---
+# --- [ 레벨링 계산 로직 ] ---
 
 def get_req_xp(level):
     return int(100 * (level ** 1.5))
@@ -87,7 +87,6 @@ async def add_chat_xp(member: discord.Member, amount: int):
     c_lvl = levels[u_str]["chat_level"]
     req = get_req_xp(c_lvl)
 
-    # 누적 경험치가 요구 경험치를 넘으면 반복해서 레벨업 처리
     while c_xp >= req:
         c_xp -= req
         c_lvl += 1
@@ -95,10 +94,10 @@ async def add_chat_xp(member: discord.Member, amount: int):
 
     levels[u_str]["chat_xp"] = c_xp
     levels[u_str]["chat_level"] = c_lvl
-    save_data(LEVEL_FILE, levels)  # 레벨업 반영 데이터 즉시 저장
+    save_data(LEVEL_FILE, levels)
 
 async def add_voice_xp(member: discord.Member, amount: int):
-    if member.bot:
+    if member.bot or amount <= 0:
         return
     levels = load_data(LEVEL_FILE)
     u_str = str(member.id)
@@ -114,7 +113,6 @@ async def add_voice_xp(member: discord.Member, amount: int):
     v_lvl = levels[u_str]["voice_level"]
     req = get_req_xp(v_lvl)
 
-    # 누적 경험치가 요구 경험치를 넘으면 반복해서 레벨업 처리
     while v_xp >= req:
         v_xp -= req
         v_lvl += 1
@@ -122,7 +120,7 @@ async def add_voice_xp(member: discord.Member, amount: int):
 
     levels[u_str]["voice_xp"] = v_xp
     levels[u_str]["voice_level"] = v_lvl
-    save_data(LEVEL_FILE, levels)  # 레벨업 반영 데이터 즉시 저장
+    save_data(LEVEL_FILE, levels)
 
 # --- [ 이미지 랭크 카드 생성 함수 ] ---
 
@@ -319,7 +317,7 @@ async def on_message(message):
         save_data(LEVEL_FILE, levels)
 
         xp_gained = random.randint(15, 25)
-        await add_chat_xp(message.author, xp_gained)  # 알림 전송 제거 및 수정 반영
+        await add_chat_xp(message.author, xp_gained)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -331,14 +329,15 @@ async def on_voice_state_update(member, before, after):
     if before.channel is None and after.channel is not None:
         voice_times[user_id] = time.time()
 
-    elif before.channel is not None and after.channel is None:
+    elif before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
         if user_id in voice_times:
             start_time = voice_times.pop(user_id)
             duration = int(time.time() - start_time)
 
-            if duration >= 60:
-                minutes = duration // 60
-                xp_gained = minutes * 10
+            if duration >= 10:
+                xp_gained = int((duration / 60) * 10)
+                if xp_gained < 1:
+                    xp_gained = 1
 
                 levels = load_data(LEVEL_FILE)
                 u_str = str(user_id)
@@ -352,6 +351,9 @@ async def on_voice_state_update(member, before, after):
                 save_data(LEVEL_FILE, levels)
 
                 await add_voice_xp(member, xp_gained)
+
+            if after.channel is not None:
+                voice_times[user_id] = time.time()
 
 # --- [ 관리자 명령어 및 제재 시스템 ] ---
 
