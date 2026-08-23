@@ -30,10 +30,10 @@ TICKET_CATEGORY_ID_2 = 1535350122114842727  # 2번 티켓: 관리자 지원 카�
 DEFAULT_ROLE_NAME = "[ 🤍 ] : 미확인"        # 신규 유저 기본 역할 이름
 
 WARN_ROLES = {
-    1: "경고 1회",
-    2: "경고 2회",
-    3: "경고 3회",
-    4: "경고 4회"
+    1: "( ⛔ ) 경고 1회",
+    2: "( ⛔ ) 경고 2회",
+    3: "( ⛔ ) 경고 3회",
+    4: "( ⛔ ) 경고 4회"
 }
 
 WARN_FILE = "warnings.json"
@@ -266,21 +266,28 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    role = discord.utils.get(member.guild.roles, name=DEFAULT_ROLE_NAME)
-    if role:
-        await member.add_roles(role)
+    channel = bot.get_channel(환영_채널_ID)  # 채널 ID 입력
 
-    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
-    if channel:
-        embed = discord.Embed(
-            title="🎉 신규 멤버 입장!",
-            description=f"{member.mention}님, **{member.guild.name}** 서버에 오신 것을 환영합니다!",
-            color=discord.Color.green()
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="기본 역할 부여", value=f"**{DEFAULT_ROLE_NAME}** 역할이 자동으로 부여되었습니다.", inline=False)
-        embed.set_footer(text=f"현재 서버 인원: {member.guild.member_count}명")
-        await channel.send(embed=embed)
+    embed = discord.Embed(
+        description=(
+            f"🎉 **신규 멤버 입장!**\n"
+            f"{member.mention}님, **어서오세요! 멜팅포인트에 오신 것을 환영합니다!**\n\n"
+            f"> 이름 / 나이 / 성별 / 경로 순으로 먼저 입력해주세요!\n↪ <#1535535342134890536>\n\n"
+            f"> 들어오신 경로를 캡쳐 하신 후 올려주세요!\n↪ <#1535535627074801734>\n\n"
+            f"> 하입코드 링크를 통해 추천 후 캡쳐하여 인증해주세요!\n↪ <#1535535716417675304>\n\n"
+            f"> 위 사항들을 다 하셨다면 ``@( 🎀 ) 안내팀 𓂃ܤ ``을 불러주세요!\n↪ <#1535536161248772096>\n\n"
+            f"앞으로 좋은 인연 오래 만들어갔으면 좋겠습니다! 잘 부탁드려요<a:mpbearbeg:1537755186921996400>"
+        ),
+        color=0xFFB3D4,  # #ffb3d4 Hex 색상
+    )
+
+    embed.add_field(
+        name="기본 역할 부여",
+        value="[🤍]: 미확인 역할이 자동으로 부여되었습니다.",
+        inline=False,
+    )
+
+    await channel.send(embed=embed)
 
 @bot.event
 async def on_message(message):
