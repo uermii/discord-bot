@@ -79,26 +79,23 @@ async def add_chat_xp(member: discord.Member, amount: int, channel: discord.Text
     if u_str not in levels:
         levels[u_str] = {
             "chat_xp": 0, "chat_level": 1, "chat_count": 0,
-            "voice_xp": 0, "voice_level": 1, "voice_seconds": 0
+            "voice_xp": 0, "voice_level": 1, "voice_seconds": 0,
+            "points": 0
         }
 
+    if "points" not in levels[u_str]:
+        levels[u_str]["points"] = 0
+
     levels[u_str]["chat_xp"] += amount
+    levels[u_str]["points"] += amount
     c_xp = levels[u_str]["chat_xp"]
     c_lvl = levels[u_str]["chat_level"]
     req = get_req_xp(c_lvl)
 
     if c_xp >= req:
         levels[u_str]["chat_level"] += 1
-        save_data(LEVEL_FILE, levels)
-        if channel:
-            embed = discord.Embed(
-                title="💬 CHAT LEVEL UP!",
-                description=f"{member.mention}님의 채팅 레벨이 **Lv. {c_lvl + 1}**(으)로 올랐습니다!",
-                color=discord.Color.pink()
-            )
-            await channel.send(embed=embed)
-    else:
-        save_data(LEVEL_FILE, levels)
+    
+    save_data(LEVEL_FILE, levels)
 
 async def add_voice_xp(member: discord.Member, amount: int):
     if member.bot:
