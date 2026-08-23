@@ -5,7 +5,7 @@ import random
 import time
 import io
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import Button, View
 from PIL import Image, ImageDraw, ImageFont
 import aiohttp
@@ -74,10 +74,7 @@ async def update_warn_roles(guild, member, warn_count):
 # --- [ 레벨링 계산 로직 ] ---
 
 def get_req_xp(level):
-    return int(100 * (level ** 1.5))
-
-user_cooldowns = {}
-voice_times = {}
+    return 100 + (level - 1) * 50
 
 async def add_chat_xp(member: discord.Member, amount: int):
     if member.bot:
@@ -118,6 +115,8 @@ async def add_voice_xp(member: discord.Member, amount: int):
         }
 
     levels[u_str]["voice_xp"] += amount
+    levels[u_str]["voice_seconds"] += 60
+    
     v_xp = levels[u_str]["voice_xp"]
     v_lvl = levels[u_str]["voice_level"]
     req = get_req_xp(v_lvl)
@@ -130,6 +129,19 @@ async def add_voice_xp(member: discord.Member, amount: int):
     levels[u_str]["voice_xp"] = v_xp
     levels[u_str]["voice_level"] = v_lvl
     save_data(LEVEL_FILE, levels)
+
+# 🔄 1분마다 음성 채널 접속자 XP 실시간 지급 루프
+@tasks.loop(minutes=1)
+async def voice_xp_loop():
+    for guild in bot.guilds:
+        for vc in guild.voice_channels:
+            for member in vc.members:
+                if not member.bot and not member.voice.afk:
+                    await add_voice_xp(member, 15)
+
+@voice_xp_loop.before_loop
+async def before_voice_xp_loop():
+    await bot.wait_until_ready()
 
 # --- [ 이미지 랭크 카드 생성 함수 ] ---
 
@@ -166,7 +178,7 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     except:
         font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
 
-    name_text = f"@{member.name}"
+    name_text = f"@{member.display_name}"
     draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
     draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
 
@@ -201,7 +213,7 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     buffer.seek(0)
     return buffer
 
-# --- [ 티켓 전용 UI 버튼 클래스 ] ---
+# --- [ 티켓 UI ] ---
 
 class CloseTicketView(View):
     def __init__(self):
@@ -272,6 +284,8 @@ async def on_ready():
     bot.add_view(TicketView1())
     bot.add_view(TicketView2())
     bot.add_view(CloseTicketView())
+    if not voice_xp_loop.is_running():
+        voice_xp_loop.start()
     print(f'{bot.user} 봇이 성공적으로 로그인했습니다!')
 
 @bot.event
@@ -305,63 +319,24 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-    user_id = message.author.id
-    current_time = time.time()
+    # 쿨타임 없이 메시지를 작성할 때마다 횟수 및 XP 즉시 누적
+    levels = load_data(LEVEL_FILE)
+    u_str = str(message.author.id)
+    
+    if u_str not in levels:
+        levels[u_str] = {
+            "chat_xp": 0, "chat_level": 1, "chat_count": 0,
+            "voice_xp": 0, "voice_level": 1, "voice_seconds": 0
+        }
+    
+    levels[u_str]["chat_count"] += 1
+    save_data(LEVEL_FILE, levels)
 
-    if user_id not in user_cooldowns or current_time - user_cooldowns[user_id] > 60:
-        user_cooldowns[user_id] = current_time
-        
-        levels = load_data(LEVEL_FILE)
-        u_str = str(user_id)
-        if u_str not in levels:
-            levels[u_str] = {
-                "chat_xp": 0, "chat_level": 1, "chat_count": 0,
-                "voice_xp": 0, "voice_level": 1, "voice_seconds": 0
-            }
-        
-        levels[u_str]["chat_count"] += 1
-        save_data(LEVEL_FILE, levels)
+    # 채팅 1회당 10~20 XP 지급
+    xp_gained = random.randint(10, 20)
+    await add_chat_xp(message.author, xp_gained)
 
-        xp_gained = random.randint(15, 25)
-        await add_chat_xp(message.author, xp_gained)
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if member.bot:
-        return
-
-    user_id = member.id
-
-    if before.channel is None and after.channel is not None:
-        voice_times[user_id] = time.time()
-
-    elif before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
-        if user_id in voice_times:
-            start_time = voice_times.pop(user_id)
-            duration = int(time.time() - start_time)
-
-            if duration >= 10:
-                xp_gained = int((duration / 60) * 10)
-                if xp_gained < 1:
-                    xp_gained = 1
-
-                levels = load_data(LEVEL_FILE)
-                u_str = str(user_id)
-                if u_str not in levels:
-                    levels[u_str] = {
-                        "chat_xp": 0, "chat_level": 1, "chat_count": 0,
-                        "voice_xp": 0, "voice_level": 1, "voice_seconds": 0
-                    }
-
-                levels[u_str]["voice_seconds"] += duration
-                save_data(LEVEL_FILE, levels)
-
-                await add_voice_xp(member, xp_gained)
-
-            if after.channel is not None:
-                voice_times[user_id] = time.time()
-
-# --- [ 관리자 명령어 및 제재 시스템 (임베드 및 로그 지원) ] ---
+# --- [ 관리자 명령어 및 제재 시스템 ] ---
 
 @bot.command()
 @commands.has_permissions(administrator=True)
