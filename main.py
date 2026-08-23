@@ -62,7 +62,7 @@ async def update_warn_roles(guild, member, warn_count):
         if target_role:
             await member.add_roles(target_role)
 
-# --- [ 레벨링 계산 로직 ] ---
+# --- [ 레벨링 계산 로직 (수정됨) ] ---
 
 def get_req_xp(level):
     return int(100 * (level ** 1.5))
@@ -70,7 +70,7 @@ def get_req_xp(level):
 user_cooldowns = {}
 voice_times = {}
 
-async def add_chat_xp(member: discord.Member, amount: int, channel: discord.TextChannel = None):
+async def add_chat_xp(member: discord.Member, amount: int):
     if member.bot:
         return
     levels = load_data(LEVEL_FILE)
@@ -79,23 +79,23 @@ async def add_chat_xp(member: discord.Member, amount: int, channel: discord.Text
     if u_str not in levels:
         levels[u_str] = {
             "chat_xp": 0, "chat_level": 1, "chat_count": 0,
-            "voice_xp": 0, "voice_level": 1, "voice_seconds": 0,
-            "points": 0
+            "voice_xp": 0, "voice_level": 1, "voice_seconds": 0
         }
 
-    if "points" not in levels[u_str]:
-        levels[u_str]["points"] = 0
-
     levels[u_str]["chat_xp"] += amount
-    levels[u_str]["points"] += amount
     c_xp = levels[u_str]["chat_xp"]
     c_lvl = levels[u_str]["chat_level"]
     req = get_req_xp(c_lvl)
 
-    if c_xp >= req:
-        levels[u_str]["chat_level"] += 1
-    
-    save_data(LEVEL_FILE, levels)
+    # 누적 경험치가 요구 경험치를 넘으면 반복해서 레벨업 처리
+    while c_xp >= req:
+        c_xp -= req
+        c_lvl += 1
+        req = get_req_xp(c_lvl)
+
+    levels[u_str]["chat_xp"] = c_xp
+    levels[u_str]["chat_level"] = c_lvl
+    save_data(LEVEL_FILE, levels)  # 레벨업 반영 데이터 즉시 저장
 
 async def add_voice_xp(member: discord.Member, amount: int):
     if member.bot:
@@ -114,19 +114,23 @@ async def add_voice_xp(member: discord.Member, amount: int):
     v_lvl = levels[u_str]["voice_level"]
     req = get_req_xp(v_lvl)
 
-    if v_xp >= req:
-        levels[u_str]["voice_level"] += 1
-    save_data(LEVEL_FILE, levels)
+    # 누적 경험치가 요구 경험치를 넘으면 반복해서 레벨업 처리
+    while v_xp >= req:
+        v_xp -= req
+        v_lvl += 1
+        req = get_req_xp(v_lvl)
 
-# --- [ 이미지 랭크 카드 생성 함수 (연분홍 톤 & 깨짐 방지 반영) ] ---
+    levels[u_str]["voice_xp"] = v_xp
+    levels[u_str]["voice_level"] = v_lvl
+    save_data(LEVEL_FILE, levels)  # 레벨업 반영 데이터 즉시 저장
+
+# --- [ 이미지 랭크 카드 생성 함수 ] ---
 
 async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     width, height = 800, 350
-    # 전체 배경: 연분홍 톤
     card = Image.new("RGBA", (width, height), (255, 235, 240, 255))
     draw = ImageDraw.Draw(card)
 
-    # 내부 카드 테두리 및 배경 (매우 부드러운 핑크)
     draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=25, fill=(255, 248, 250, 255), outline=(255, 190, 205), width=3)
 
     avatar_url = member.display_avatar.with_size(256).url
@@ -143,7 +147,6 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
     avatar_x, avatar_y = 50, 75
-    # 아바타 외곽선 (딸기우유 핑크)
     draw.ellipse([avatar_x - 6, avatar_y - 6, avatar_x + avatar_size + 6, avatar_y + avatar_size + 6], fill=(255, 180, 195))
     draw.ellipse([avatar_x - 2, avatar_y - 2, avatar_x + avatar_size + 2, avatar_y + avatar_size + 2], fill=(255, 255, 255))
     card.paste(avatar_img, (avatar_x, avatar_y), mask)
@@ -157,7 +160,6 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
         font_name = font_label = font_lvl = font_xp = ImageFont.load_default()
 
     name_text = f"@{member.name}"
-    # 유저 네임 태그 상자 (연분홍)
     draw.rounded_rectangle([480, 35, 740, 75], radius=20, fill=(255, 210, 222), outline=(255, 170, 190), width=2)
     draw.text((610, 55), name_text, fill=(180, 70, 100), font=font_name, anchor="mm")
 
@@ -170,7 +172,6 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
     v_req = get_req_xp(v_lvl)
 
     def draw_progress_bar(y, label_text, level, current_xp, req_xp):
-        # 텍스트 깨짐 방지를 위해 영문 라벨 사용
         draw.text((290, y + 17), label_text, fill=(220, 90, 120), font=font_label, anchor="lm")
         draw.text((370, y + 17), f"LV.{level}", fill=(230, 110, 140), font=font_lvl, anchor="lm")
         
@@ -180,7 +181,6 @@ async def make_rank_card(member: discord.Member, user_data: dict) -> io.BytesIO:
         progress = min(1.0, current_xp / req_xp) if req_xp > 0 else 0
         fill_width = int((bar_x2 - bar_x1) * progress)
         if fill_width > 10:
-            # 프로그레스바 채우기 (진한 핑크)
             draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=18, fill=(255, 130, 160))
 
         xp_text = f"{current_xp}/{req_xp}"
@@ -255,7 +255,7 @@ class TicketView2(View):
     async def create_ticket(self, interaction: discord.Interaction, button: Button):
         await create_ticket_channel(interaction, TICKET_CATEGORY_ID_2, "신청")
 
-# --- [ 이벤트 감지 (채팅 XP / 음성 XP / 환영인사) ] ---
+# --- [ 이벤트 감지 ] ---
 
 @bot.event
 async def on_ready():
@@ -266,28 +266,33 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    channel = bot.get_channel(환영_채널_ID)  # 채널 ID 입력
+    role = discord.utils.get(member.guild.roles, name=DEFAULT_ROLE_NAME)
+    if role:
+        try:
+            await member.add_roles(role)
+        except Exception as e:
+            print(f"역할 부여 실패: {e}")
 
-    embed = discord.Embed(
-        description=(
-            f"🎉 **신규 멤버 입장!**\n"
-            f"{member.mention}님, **어서오세요! 멜팅포인트에 오신 것을 환영합니다!**\n\n"
-            f"> 이름 / 나이 / 성별 / 경로 순으로 먼저 입력해주세요!\n↪ <#1535535342134890536>\n\n"
-            f"> 들어오신 경로를 캡쳐 하신 후 올려주세요!\n↪ <#1535535627074801734>\n\n"
-            f"> 하입코드 링크를 통해 추천 후 캡쳐하여 인증해주세요!\n↪ <#1535535716417675304>\n\n"
-            f"> 위 사항들을 다 하셨다면 ``@( 🎀 ) 안내팀 𓂃ܤ ``을 불러주세요!\n↪ <#1535536161248772096>\n\n"
-            f"앞으로 좋은 인연 오래 만들어갔으면 좋겠습니다! 잘 부탁드려요<a:mpbearbeg:1537755186921996400>"
-        ),
-        color=0xFFB3D4,  # #ffb3d4 Hex 색상
-    )
-
-    embed.add_field(
-        name="기본 역할 부여",
-        value="[🤍]: 미확인 역할이 자동으로 부여되었습니다.",
-        inline=False,
-    )
-
-    await channel.send(embed=embed)
+    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        embed = discord.Embed(
+            description=(
+                f"🎉 **신규 멤버 입장!**\n"
+                f"{member.mention}님, **어서오세요! 멜팅포인트에 오신 것을 환영합니다!**\n\n"
+                f"> 이름 / 나이 / 성별 / 경로 순으로 먼저 입력해주세요!\n↪ <#1535535342134890536>\n\n"
+                f"> 들어오신 경로를 캡쳐 하신 후 올려주세요!\n↪ <#1535535627074801734>\n\n"
+                f"> 하입코드 링크를 통해 추천 후 캡쳐하여 인증해주세요!\n↪ <#1535535716417675304>\n\n"
+                f"> 위 사항들을 다 하셨다면 ``@( 🎀 ) 안내팀 𓂃ܤ ``을 불러주세요!\n↪ <#1535536161248772096>\n\n"
+                f"앞으로 좋은 인연 오래 만들어갔으면 좋겠습니다! 잘 부탁드려요<a:mpbearbeg:1537755186921996400>"
+            ),
+            color=0xFFB3D4
+        )
+        embed.add_field(
+            name="기본 역할 부여",
+            value="[🤍]: 미확인 역할이 자동으로 부여되었습니다.",
+            inline=False
+        )
+        await channel.send(embed=embed)
 
 @bot.event
 async def on_message(message):
@@ -314,7 +319,7 @@ async def on_message(message):
         save_data(LEVEL_FILE, levels)
 
         xp_gained = random.randint(15, 25)
-        await add_chat_xp(message.author, xp_gained, message.channel)
+        await add_chat_xp(message.author, xp_gained)  # 알림 전송 제거 및 수정 반영
 
 @bot.event
 async def on_voice_state_update(member, before, after):
