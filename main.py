@@ -74,7 +74,8 @@ async def update_warn_roles(guild, member, warn_count):
 # --- [ 레벨링 계산 로직 ] ---
 
 def get_req_xp(level):
-    return 100 + (level - 1) * 50
+    # 레벨업 요구량 공식: 100 + (level - 1) * 100 (Lv.1: 100, Lv.2: 200...)
+    return 100 + (level - 1) * 100
 
 async def add_chat_xp(member: discord.Member, amount: int):
     if member.bot:
@@ -319,7 +320,6 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-    # 쿨타임 없이 메시지를 작성할 때마다 횟수 및 XP 즉시 누적
     levels = load_data(LEVEL_FILE)
     u_str = str(message.author.id)
     
@@ -332,8 +332,8 @@ async def on_message(message):
     levels[u_str]["chat_count"] += 1
     save_data(LEVEL_FILE, levels)
 
-    # 채팅 1회당 10~20 XP 지급
-    xp_gained = random.randint(10, 20)
+    # 메시지 1회당 5~8 XP 지급
+    xp_gained = random.randint(5, 8)
     await add_chat_xp(message.author, xp_gained)
 
 # --- [ 관리자 명령어 및 제재 시스템 ] ---
