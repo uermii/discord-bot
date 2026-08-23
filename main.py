@@ -44,7 +44,10 @@ LEVEL_FILE = "levels.json"
 def load_data(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
     return {}
 
 def save_data(file_path, data):
@@ -55,12 +58,18 @@ async def update_warn_roles(guild, member, warn_count):
     for role_name in WARN_ROLES.values():
         role = discord.utils.get(guild.roles, name=role_name)
         if role and role in member.roles:
-            await member.remove_roles(role)
+            try:
+                await member.remove_roles(role)
+            except discord.Forbidden:
+                pass
 
     if warn_count in WARN_ROLES:
         target_role = discord.utils.get(guild.roles, name=WARN_ROLES[warn_count])
         if target_role:
-            await member.add_roles(target_role)
+            try:
+                await member.add_roles(target_role)
+            except discord.Forbidden:
+                pass
 
 # --- [ 레벨링 계산 로직 ] ---
 
@@ -202,7 +211,10 @@ class CloseTicketView(View):
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message("5초 후 이 티켓 채널이 삭제됩니다.")
         await asyncio.sleep(5)
-        await interaction.channel.delete()
+        try:
+            await interaction.channel.delete()
+        except discord.Forbidden:
+            pass
 
 async def create_ticket_channel(interaction: discord.Interaction, category_id: int, prefix: str):
     await interaction.response.defer(ephemeral=True)
@@ -349,7 +361,7 @@ async def on_voice_state_update(member, before, after):
             if after.channel is not None:
                 voice_times[user_id] = time.time()
 
-# --- [ 관리자 명령어 및 제재 시스템 ] ---
+# --- [ 관리자 명령어 및 제재 시스템 (임베드 및 로그 지원) ] ---
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -382,15 +394,45 @@ async def 주의(ctx, member: discord.Member, *, reason: str = "사유 미작성
     save_data(WARN_FILE, data)
     c_count, w_count = data[user_id]["caution"], data[user_id]["warn"]
 
+    log_channel = ctx.guild.get_channel(CAUTION_LOG_CHANNEL_ID)
+
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
-        await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
+        embed = discord.Embed(
+            title="⛔ 유저 차단 (경고 5회 누적)",
+            description=f"{member.mention}님이 **경고 5회 누적**으로 서버에서 차단되었습니다.",
+            color=discord.Color.dark_red()
+        )
+        embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+        embed.add_field(name="사유", value=reason, inline=True)
+        await ctx.send(embed=embed)
+        if log_channel: await log_channel.send(embed=embed)
     else:
         await update_warn_roles(ctx.guild, member, w_count)
         if converted:
-            await ctx.send(f"⚠️ {member.mention}님은 **주의 2회 누적**으로 **경고 1회**로 전환되었습니다! (현재 경고: {w_count}회)")
+            embed = discord.Embed(
+                title="⚠️ 주의 누적 ➔ 경고 전환",
+                description=f"{member.mention}님은 **주의 2회 누적**으로 **경고 1회**가 부여되었습니다!",
+                color=discord.Color.gold()
+            )
+            embed.add_field(name="현재 상태", value=f"🟡 주의: {c_count}/2회 | 🔴 경고: {w_count}/5회", inline=False)
+            embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+            embed.add_field(name="사유", value=reason, inline=True)
+            await ctx.send(embed=embed)
+            
+            warn_log_channel = ctx.guild.get_channel(WARN_LOG_CHANNEL_ID)
+            if warn_log_channel: await warn_log_channel.send(embed=embed)
         else:
-            await ctx.send(f"🟡 {member.mention}님에게 주의를 부여했습니다. (현재 주의: {c_count}/2회)")
+            embed = discord.Embed(
+                title="🟡 주의 부여",
+                description=f"{member.mention}님에게 **주의**를 부여했습니다.",
+                color=discord.Color.gold()
+            )
+            embed.add_field(name="현재 상태", value=f"🟡 주의: {c_count}/2회 | 🔴 경고: {w_count}/5회", inline=False)
+            embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+            embed.add_field(name="사유", value=reason, inline=True)
+            await ctx.send(embed=embed)
+            if log_channel: await log_channel.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(kick_members=True)
@@ -402,14 +444,33 @@ async def 경고(ctx, member: discord.Member, *, reason: str = "사유 미작성
 
     data[user_id]["warn"] += 1
     save_data(WARN_FILE, data)
-    w_count = data[user_id]["warn"]
+    c_count, w_count = data[user_id]["caution"], data[user_id]["warn"]
+
+    log_channel = ctx.guild.get_channel(WARN_LOG_CHANNEL_ID)
 
     if w_count >= 5:
         await ctx.guild.ban(member, reason=f"경고 5회 누적 차단 (사유: {reason})")
-        await ctx.send(f"⛔ {member.mention}님이 **경고 5회 누적**으로 차단되었습니다.")
+        embed = discord.Embed(
+            title="⛔ 유저 차단 (경고 5회 누적)",
+            description=f"{member.mention}님이 **경고 5회 누적**으로 서버에서 차단되었습니다.",
+            color=discord.Color.dark_red()
+        )
+        embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+        embed.add_field(name="사유", value=reason, inline=True)
+        await ctx.send(embed=embed)
+        if log_channel: await log_channel.send(embed=embed)
     else:
         await update_warn_roles(ctx.guild, member, w_count)
-        await ctx.send(f"🔴 {member.mention}님에게 경고를 부여했습니다. (현재 경고: {w_count}회)")
+        embed = discord.Embed(
+            title="🔴 경고 부여",
+            description=f"{member.mention}님에게 **경고**를 부여했습니다.",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="현재 상태", value=f"🟡 주의: {c_count}/2회 | 🔴 경고: {w_count}/5회", inline=False)
+        embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+        embed.add_field(name="사유", value=reason, inline=True)
+        await ctx.send(embed=embed)
+        if log_channel: await log_channel.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(kick_members=True)
@@ -421,7 +482,18 @@ async def 주의차감(ctx, member: discord.Member, amount: int = 1):
 
     data[user_id]["caution"] = max(0, data[user_id]["caution"] - amount)
     save_data(WARN_FILE, data)
-    await ctx.send(f"🟢 {member.mention}님의 주의를 {amount}회 차감했습니다.")
+    
+    embed = discord.Embed(
+        title="🟢 주의 차감",
+        description=f"{member.mention}님의 주의를 **{amount}회** 차감했습니다.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="현재 상태", value=f"🟡 주의: {data[user_id]['caution']}/2회 | 🔴 경고: {data[user_id]['warn']}/5회", inline=False)
+    embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+    await ctx.send(embed=embed)
+
+    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
+    if log_channel: await log_channel.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(kick_members=True)
@@ -434,7 +506,18 @@ async def 경고차감(ctx, member: discord.Member, amount: int = 1):
     data[user_id]["warn"] = max(0, data[user_id]["warn"] - amount)
     save_data(WARN_FILE, data)
     await update_warn_roles(ctx.guild, member, data[user_id]["warn"])
-    await ctx.send(f"🟢 {member.mention}님의 경고를 {amount}회 차감했습니다.")
+
+    embed = discord.Embed(
+        title="🟢 경고 차감",
+        description=f"{member.mention}님의 경고를 **{amount}회** 차감했습니다.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="현재 상태", value=f"🟡 주의: {data[user_id]['caution']}/2회 | 🔴 경고: {data[user_id]['warn']}/5회", inline=False)
+    embed.add_field(name="처리 관리자", value=ctx.author.mention, inline=True)
+    await ctx.send(embed=embed)
+
+    log_channel = ctx.guild.get_channel(DEDUCT_LOG_CHANNEL_ID)
+    if log_channel: await log_channel.send(embed=embed)
 
 @bot.command()
 async def 경고확인(ctx, member: discord.Member = None):
